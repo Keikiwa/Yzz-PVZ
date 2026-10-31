@@ -497,6 +497,11 @@ def render_zombie_sprite(
     if getattr(zombie, "slow_timer", 0.0) > 0:
         frame = _get_frozen(frame)
 
+    # 魅惑僵尸水平翻转（调头向右冲锋）
+    is_hypno = getattr(zombie, "hypnotized", False)
+    if is_hypno:
+        frame = pygame.transform.flip(frame, True, False)
+
     # 尺寸缩放适配 (原版僵尸高约 118 像素)
     bw, bh = frame.get_size()
     target_h = 118
@@ -567,6 +572,11 @@ def render_zombie_sprite(
             pygame.draw.circle(surface, (185, 122, 60), (int(dx - 2), int(dy - 2)), 3)
     else:
         surface.blit(scaled, (draw_x, draw_y))
+        if is_hypno and alpha >= 180:
+            glow_surf = pygame.Surface((target_w, target_h), pygame.SRCALPHA)
+            glow_a = int(55 + 25 * math.sin(time_value * 7.0))
+            pygame.draw.ellipse(glow_surf, (255, 120, 240, glow_a), glow_surf.get_rect())
+            surface.blit(glow_surf, (draw_x, draw_y), special_flags=pygame.BLEND_RGBA_ADD)
 
     # 巨人僵尸特写：巨锤与背上的小鬼
     if ztype == "gargantuar":

@@ -1,8 +1,14 @@
+from __future__ import annotations
+import ctypes
+try:
+    ctypes.windll.winmm.timeBeginPeriod(1)
+except Exception:
+    pass
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """A self-contained ten-level Plants vs. Zombies style pygame prototype with rich enhancements."""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -500,7 +506,7 @@ class AudioBank:
         self.music_volume = 0.55
         try:
             if pygame.mixer.get_init() is None:
-                pygame.mixer.init(frequency=self.SAMPLE_RATE, size=-16, channels=2, buffer=512)
+                pygame.mixer.init(frequency=self.SAMPLE_RATE, size=-16, channels=2, buffer=2048)
             pygame.mixer.set_num_channels(16)
             self.sounds = {
                 "collect": self._tone(760, 1120, 0.16, 0.15, 0.0),
@@ -652,8 +658,12 @@ def text(
     anchor: str = "topleft",
     shadow: tuple[int, int, int] | None = None,
 ) -> pygame.Rect:
-    value = _clean_text_glyphs(value)
     key = (id(font), value, color)
+    image = _TEXT_CACHE.get(key)
+    if image is None:
+        value = _clean_text_glyphs(value)
+        key = (id(font), value, color)
+        image = _TEXT_CACHE.get(key)
     image = _TEXT_CACHE.get(key)
     if image is None:
         image = font.render(value, True, color)
@@ -2232,6 +2242,8 @@ class Game:
         for particle in self.particles:
             particle.update(dt)
         self.particles = [p for p in self.particles if p.alive]
+        if len(self.particles) > 45:
+            self.particles = self.particles[-45:]
         for item in self.floating_texts:
             item.update(dt)
         self.floating_texts = [t for t in self.floating_texts if t.alive]
@@ -2265,7 +2277,7 @@ class Game:
                 # 大喷菇：喷射大范围紫色穿透孢子气雾
                 if plant.action_timer >= 1.45:
                     has_target = any(
-                        z.row == plant.row and not z.dead and z.x > plant.x - 20 and z.x < plant.x + 420
+                        z.row == plant.row and not z.dead and not getattr(z, 'hypnotized', False) and z.x > plant.x - 20 and z.x < plant.x + 420
                         for z in self.zombies
                     )
                     if has_target:
@@ -2371,7 +2383,7 @@ class Game:
             elif plant.ptype in ("peashooter", "snowpea", "repeater"):
                 if plant.action_timer >= (1.42 if plant.ptype != "repeater" else 1.58):
                     has_target = any(
-                        z.row == plant.row and not z.dead and z.x > plant.x - 20 and z.x < GRID_RIGHT + 180
+                        z.row == plant.row and not z.dead and not getattr(z, 'hypnotized', False) and z.x > plant.x - 20 and z.x < GRID_RIGHT + 180
                         for z in self.zombies
                     )
                     if has_target:
@@ -2384,7 +2396,7 @@ class Game:
             elif plant.ptype == "gatlingpea":
                 if plant.action_timer >= 1.45:
                     has_target = any(
-                        z.row == plant.row and not z.dead and z.x > plant.x - 20 and z.x < GRID_RIGHT + 180
+                        z.row == plant.row and not z.dead and not getattr(z, 'hypnotized', False) and z.x > plant.x - 20 and z.x < GRID_RIGHT + 180
                         for z in self.zombies
                     )
                     if has_target:
@@ -2704,7 +2716,46 @@ class Game:
             if zombie.ztype == "snorkel":
                 zombie.is_submerged = (plant is None)
 
-            if plant is not None:
+            is_hypno = getattr(zombie, "hypnotized", False)
+
+            # 寻找敌对僵尸进行互相啃食对决
+            target_enemy_z = None
+            if is_hypno:
+                # 魅惑僵尸朝右冲锋，咬右侧最近的普通敌方僵尸
+                candidates = [
+                    ez for ez in self.zombies
+                    if not ez.dead and not getattr(ez, "hypnotized", False)
+                    and ez.row == zombie.row
+                    and -15 <= (ez.x - zombie.x) <= 45
+                ]
+                if candidates:
+                    target_enemy_z = min(candidates, key=lambda ez: abs(ez.x - zombie.x))
+            else:
+                # 普通僵尸朝左前进，若面前遭遇倒戈的魅惑僵尸，必须停下啃食魅惑僵尸
+                candidates = [
+                    hz for hz in self.zombies
+                    if not hz.dead and getattr(hz, "hypnotized", False)
+                    and hz.row == zombie.row
+                    and -15 <= (zombie.x - hz.x) <= 45
+                ]
+                if candidates:
+                    target_enemy_z = min(candidates, key=lambda hz: abs(zombie.x - hz.x))
+
+            # 执行战斗啃咬判定
+            if target_enemy_z is not None:
+                # 双方停下脚步，面对面激烈啃咬互殴！
+                zombie.eating = min(1.0, zombie.eating + dt * 4)
+                zombie.bite_timer += dt
+                bite_delay = 0.38 if zombie.enraged else 0.50
+                if zombie.bite_timer >= bite_delay:
+                    zombie.bite_timer = 0
+                    dmg = 1500.0 if zombie.ztype == "gargantuar" else (zombie.damage * (1.5 if zombie.enraged else 1.0))
+                    self._damage_zombie(target_enemy_z, dmg)
+                    target_enemy_z.flash = 0.18
+                    self.burst(target_enemy_z.x, target_enemy_z.y - 15, (255, 120, 160), 4)
+                    self.audio.play("chomp", cooldown=0.1)
+            elif not is_hypno and plant is not None:
+                # 普通僵尸正常啃食植物
                 zombie.eating = min(1.0, zombie.eating + dt * 4)
                 zombie.bite_timer += dt
                 bite_delay = 0.38 if zombie.enraged else 0.55
@@ -2717,14 +2768,15 @@ class Game:
                         self.audio.play("squash")
                     plant.flash = 0.18
                     self.burst(plant.x, plant.y, (120, 185, 75), 2)
+                    self.audio.play("chomp", cooldown=0.1)
 
                     # 魅惑菇：啃食即刻被魅惑倒戈
                     if plant.ptype == "hypnoshroom":
                         plant.alive = False
                         zombie.eating = 0.0
                         setattr(zombie, "hypnotized", True)
-                        zombie.speed = -abs(zombie.speed) # 调头倒戈！
-                        self.burst(plant.x, plant.y, (255, 120, 220), 16)
+                        zombie.speed = -abs(zombie.speed) # 彻底调头倒戈冲锋！
+                        self.burst(plant.x, plant.y, (255, 120, 220), 20)
                         self.float_text(zombie.x, zombie.y - 25, "已被魅惑！", (255, 120, 220))
                         self.audio.play("groan")
 
@@ -2757,15 +2809,11 @@ class Game:
                         zombie.eating = 0.0
                         self.audio.play("click")
             else:
+                # 移动阶段
                 zombie.eating = max(0.0, zombie.eating - dt * 3)
                 zombie.x -= zombie.speed * speed_mult * dt
-                # 魅惑僵尸为玩家反向作战
-                if getattr(zombie, "hypnotized", False):
-                    for ez in self.zombies:
-                        if not ez.dead and not getattr(ez, "hypnotized", False) and ez.row == zombie.row:
-                            if abs(ez.x - zombie.x) < 32:
-                                self._damage_zombie(ez, 60.0 * dt)
-                                break
+                if is_hypno:
+                    # 魅惑僵尸反推至右侧大门外后胜利撤退
                     if zombie.x > WIDTH + 80:
                         zombie.dead = True
                         continue
@@ -2835,7 +2883,7 @@ class Game:
                 hit_set = getattr(projectile, "hit_set", set())
                 setattr(projectile, "hit_set", hit_set)
                 for ez in self.zombies:
-                    if not ez.dead and ez.row == projectile.row and abs(ez.x - projectile.x) < 38 and id(ez) not in hit_set:
+                    if not ez.dead and not getattr(ez, 'hypnotized', False) and ez.row == projectile.row and abs(ez.x - projectile.x) < 38 and id(ez) not in hit_set:
                         hit_set.add(id(ez))
                         self._damage_zombie(ez, projectile.damage)
                         self.burst(ez.x, ez.y - 15, (210, 110, 230), 4)
@@ -2879,7 +2927,7 @@ class Game:
 
                     hit_targets = [
                         z for z in self.zombies
-                        if z.row == projectile.row and not z.dead and abs(z.x - impact_x) < 55
+                        if z.row == projectile.row and not z.dead and not getattr(z, 'hypnotized', False) and abs(z.x - impact_x) < 55
                     ]
                     main_target = min(hit_targets, key=lambda z: abs(z.x - impact_x)) if hit_targets else None
 
@@ -2931,7 +2979,7 @@ class Game:
 
             # 普通直线子弹与追踪尖刺命中判定
             for zombie in self.zombies:
-                if zombie.dead:
+                if zombie.dead or getattr(zombie, 'hypnotized', False):
                     continue
                 if projectile.is_homing:
                     if abs(zombie.x - projectile.x) > 28 or abs(zombie.y - projectile.y) > 36:
@@ -4140,8 +4188,11 @@ def main() -> int:
 
     pygame.init()
     pygame.display.set_caption("植物大战僵尸 · Gemini 4 Argon 复刻版")
-    flags = 0
-    screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+    flags = pygame.DOUBLEBUF | pygame.HWSURFACE
+    try:
+        screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+    except Exception:
+        screen = pygame.display.set_mode((WIDTH, HEIGHT), 0)
     game = Game(screen, headless=headless)
 
     if args.seed_select:
