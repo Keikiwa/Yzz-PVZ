@@ -267,13 +267,13 @@ PLANT_TIPS = {
     "garlic": "大蒜：耐嚼刺鼻！任何僵尸啃咬大蒜后都会嫌恶变道，将尸群分流至其它重兵防线。",
     "cattail": "猫尾草：水生制导王者！种植在睡莲上，可向全图任何一行的僵尸发射自动追踪刺针！",
     "tallnut": "高坚果：拥有 8000 超高血量的重型钢铁壁垒！撑杆跳与海豚僵尸绝对无法跳越！",
-    "gatlingpea": "机枪射手：头戴钢盔的终极射手！一次性扫射 4 颗豌豆，配合火炬树桩火力毁天灭地！",
+    "gatlingpea": "机枪射手：头戴钢盔的四发重型射手，连续扫射 4 颗豌豆，配合火炬树桩火力倍增。",
     "hypnoshroom": "魅惑菇：让吃下它的僵尸彻底倒戈！掉头反向冲锋并为你攻击其他敌方僵尸！",
     "fumeshroom": "大喷菇：喷射大范围强力紫色穿透孢子气雾，一次性贯穿打击整行内所有僵尸！",
     "doomshroom": "毁灭菇：末日级超级核弹！产生惊天动地的毁灭蘑菇云，瞬秒 5x5 格内全部僵尸！",
     "twinsunflower": "双子向日葵：双头并立双倍快乐！每次稳定产出 50 点巨量阳光，经济腾飞核心！",
     "starfruit": "杨桃：全方位无死角弹幕射手！同时向 5 个方向发射高速旋转飞星，密不透风！",
-    "cobcannon": "玉米加农炮：PVZ 终极大杀器！装填高爆玉米核弹，轰炸全屏 3x3 范围造成 1800 毁天灭地巨额伤害！",
+    "cobcannon": "玉米加农炮：手动选点轰炸，落点周围 3x3 范围造成 1800 点高额范围爆炸伤害。",
     "magicshroom": "魔术菇：挥舞魔杖连发旋转魔术扑克牌！命中时 25% 几率奇迹魅惑变节僵尸或掉落暴富阳光！",
     "agave": "龙舌兰：近战刺客与剑气宗师！拔出青翠多肉巨剑蓄力二连斩；对残血僵尸直接施展苍翠剑浪斩杀！",
     "laserbean": "激光豆：未来科幻双目射手！双眼射出贯通全屏整行的超强蓝色激光束，无视护甲穿透灼烧！",
@@ -373,7 +373,7 @@ LEVELS = [
         "pool": True,
     },
     {
-        "name": "水陆决战", "subtitle": "全兵种终极大决战！守住全场",
+        "name": "水陆决战", "subtitle": "全兵种防守演练！守住全场",
         "sun": 600, "count": 42,
         "mix": (0.14, 0.16, 0.16, 0.10, 0.08, 0.08, 0.10, 0.09, 0.09), "theme": "pool_night",
         "pool": True,
@@ -3336,7 +3336,7 @@ class Game:
         draw_plant(self.screen, "chomper", (988, 622), 0.9, self.time_value + 1.0)
 
         text(self.screen, "植物大战僵尸", self.fonts.get(52, True), C_CREAM, (600, 36), "midtop", (33, 61, 38))
-        text(self.screen, "PYGAME  ·  全功能豪华版  ·  草坪与泳池十六关", self.fonts.get(17, True), (255, 225, 137), (600, 96), "midtop")
+        text(self.screen, "PVZ  ·  Gemini 4 Argon 复刻版本  ·  Python / Pygame 机制重制", self.fonts.get(17, True), (255, 225, 137), (600, 96), "midtop")
 
         save = load_save()
         completed = set(save.get("completed", []))
@@ -4122,7 +4122,7 @@ class Game:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="植物大战僵尸风格 pygame 豪华版原型")
+    parser = argparse.ArgumentParser(description="植物大战僵尸 - Gemini 4 Argon 复刻版 (Pygame)")
     parser.add_argument("--level", type=int, default=None, help="直接启动指定关卡（1-16）")
     parser.add_argument("--smoke-test", action="store_true", help="无窗口冒烟测试")
     parser.add_argument("--screenshot", type=str, default="", help="保存游戏内预览图")
@@ -4139,7 +4139,7 @@ def main() -> int:
         os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
     pygame.init()
-    pygame.display.set_caption("植物大战僵尸 · 豪华增强版 · pygame")
+    pygame.display.set_caption("植物大战僵尸 · Gemini 4 Argon 复刻版")
     flags = 0
     screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
     game = Game(screen, headless=headless)

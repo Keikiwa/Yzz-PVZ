@@ -13,7 +13,7 @@ def check_encoding():
     except UnicodeDecodeError:
         raise AssertionError("bat is not valid GBK!")
 
-    md_path = r"F:\Desktop\.DeskBox\文件夹\反重力产出\文档\植物大战僵尸_全功能豪华版_交付说明.md"
+    md_path = r"F:\Desktop\.DeskBox\文件夹\反重力产出\文档\植物大战僵尸_Gemini4Argon复刻版本_交付说明.md"
     with open(md_path, "rb") as f:
         md_bytes = f.read()
     assert md_bytes.startswith(b"\xef\xbb\xbf"), "md missing UTF-8 BOM!"
