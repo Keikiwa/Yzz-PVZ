@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.bak
+
+# Cache and temporary folders
+download_cache/
+.pytest_cache/
+pvz_save.json
+
+# Tool inspection images
+tools/*.png
+tools/test_*.png
+tools/inspect_*.png
+tools/showcase_*.png
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
