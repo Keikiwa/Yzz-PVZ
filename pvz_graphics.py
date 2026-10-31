@@ -632,22 +632,46 @@ def render_zombie_sprite(
         pygame.draw.polygon(cone_surf, (255, 255, 200, 45), [(0, 20), (80, 0), (80, 40)])
         surface.blit(cone_surf, (cap_x + 10, cap_y - 12))
 
-    # 黄油糊脸特写 (被玉米黄油击中时)
+    # 黄油糊脸特写 (被玉米黄油击中时，鲜黄醒目)
     butter_t = getattr(zombie, "butter_timer", 0.0)
     if butter_t > 0:
         butter_surf = _ITEM_SURFACES.get("butter")
         if butter_surf:
-            b_scaled = _get_scaled(butter_surf, 32, 22)
-            surface.blit(b_scaled, (int(zombie.x - 16), int(draw_y - 6)))
+            b_scaled = _get_scaled(butter_surf, 38, 26)
+            surface.blit(b_scaled, (int(zombie.x - 19), int(ground_y - 82 + vault_y)))
 
-    # 血条绘制 (仅在未死亡且受伤时)
-    if alpha >= 200 and zombie.hp < zombie.max_hp:
-        ratio = max(0.0, min(1.0, zombie.hp / zombie.max_hp))
-        bar = pygame.Rect(int(zombie.x - 24), int(draw_y - 8), 48, 6)
+    # 血条绘制 (读报僵尸护盾及各僵尸受伤时稳定常显，高度固定不随动作跳跃)
+    has_np = getattr(zombie, "has_newspaper", False)
+    np_hp = getattr(zombie, "newspaper_hp", 0.0)
+    if ztype == "newspaper":
+        total_hp = zombie.hp + (np_hp if has_np else 0.0)
+        total_max = zombie.max_hp + 140.0
+        damaged = total_hp < (total_max - 0.5)
+        ratio = max(0.0, min(1.0, total_hp / total_max))
+    else:
+        damaged = zombie.hp < (zombie.max_hp - 0.5)
+        ratio = max(0.0, min(1.0, zombie.hp / max(1.0, zombie.max_hp)))
+
+    if not getattr(zombie, "dead", False) and damaged and alpha >= 100:
+        if ztype == "gargantuar":
+            bar_y = int(ground_y - 142 + vault_y)
+            bar_w = 64
+        elif ztype == "imp":
+            bar_y = int(ground_y - 48)
+            bar_w = 34
+        elif ztype == "balloon" and getattr(zombie, "flying", True):
+            bar_y = int(ground_y - 118 + balloon_y)
+            bar_w = 48
+        else:
+            bar_y = int(ground_y - 94 + vault_y)
+            bar_w = 48
+
+        bar = pygame.Rect(int(zombie.x - bar_w // 2), bar_y, bar_w, 6)
         pygame.draw.rect(surface, (45, 30, 30), bar, border_radius=3)
         fill = bar.inflate(-2, -2)
         fill.width = int(fill.width * ratio)
         col = (97, 198, 92) if ratio > 0.55 else (241, 186, 58) if ratio > 0.25 else (226, 73, 59)
-        pygame.draw.rect(surface, col, fill, border_radius=2)
+        if fill.width > 0:
+            pygame.draw.rect(surface, col, fill, border_radius=2)
 
     return True

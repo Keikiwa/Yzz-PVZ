@@ -187,7 +187,7 @@ PLANTS = {
         "name": "毁灭菇", "cost": 125, "cooldown": 25.0, "hp": 300,
     },
     "twinsunflower": {
-        "name": "双子向日葵", "cost": 150, "cooldown": 15.0, "hp": 300,
+        "name": "双子向日葵", "cost": 125, "cooldown": 15.0, "hp": 300,
     },
     "starfruit": {
         "name": "杨桃", "cost": 125, "cooldown": 7.5, "hp": 300,
@@ -215,6 +215,7 @@ UNLOCK_ORDER = [
     "snowpea",
     "potatomine",
     "repeater",
+    "threepeater",
     "squash",
     # 黑夜墓地阶段解锁 (第 6~10 关通关赠送，夜间专属蘑菇家族与防御杀器)
     "puffshroom",
@@ -236,7 +237,6 @@ UNLOCK_ORDER = [
     "cattail",
     "twinsunflower",
     "starfruit",
-    "threepeater",
     "melonpult",
     "tallnut",
     # 传奇新植物与终极武器
@@ -400,7 +400,7 @@ LEVEL_REWARDS = {
     2: {"plants": ["potatomine"], "artifact": None},
     3: {"plants": ["repeater"], "artifact": None},
     4: {
-        "plants": ["squash"],
+        "plants": ["squash", "threepeater"],
         "artifact": "golden_shovel",
         "artifact_name": "黄金阳光铲",
         "artifact_desc": "神奇黄金铁铲！铲除任何植物时，100% 全额返还种植所消耗的阳光！",
@@ -416,9 +416,9 @@ LEVEL_REWARDS = {
     8: {"plants": ["chomper", "iceshroom"], "artifact": None},
     9: {
         "plants": ["doomshroom", "jalapeno"],
-        "artifact": "rapid_seeds",
-        "artifact_name": "园艺快手手套",
-        "artifact_desc": "熟练园丁的特制手套！全植物种植冷却恢复速度提升 30%！",
+        "artifact": "auto_sun_magnet",
+        "artifact_name": "磁能阳光发生器 (自动收集阳光)",
+        "artifact_desc": "戴夫高级黑科技！解锁全场阳光自动吸附功能，可在右上角[自吸:开/关]随心自由切换！",
     },
     10: {"plants": ["lilypad", "cabbagepult"], "artifact": None},
     11: {
@@ -428,7 +428,7 @@ LEVEL_REWARDS = {
         "artifact_desc": "华丽镀金清扫车！当割草机或泳池清扫机被触发碾压时，额外爆落 200 点阳光！",
     },
     12: {"plants": ["garlic", "cattail", "twinsunflower"], "artifact": None},
-    13: {"plants": ["starfruit", "threepeater", "agave"], "artifact": None},
+    13: {"plants": ["starfruit", "agave", "gatlingpea"], "artifact": None},
     14: {
         "plants": ["melonpult", "tallnut", "magicshroom", "laserbean"],
         "artifact": "master_belt",
@@ -1217,14 +1217,25 @@ def draw_zombie(
             0.1, math.pi - 0.1, 3,
         )
 
-    if zombie.hp < zombie.max_hp:
-        ratio = clamp(zombie.hp / zombie.max_hp, 0, 1)
+    has_np = getattr(zombie, "has_newspaper", False)
+    np_hp = getattr(zombie, "newspaper_hp", 0.0)
+    if zombie.ztype == "newspaper":
+        tot_hp = zombie.hp + (np_hp if has_np else 0.0)
+        tot_max = zombie.max_hp + 140.0
+        dmg = tot_hp < (tot_max - 0.5)
+        bar_ratio = clamp(tot_hp / tot_max, 0, 1)
+    else:
+        dmg = zombie.hp < (zombie.max_hp - 0.5)
+        bar_ratio = clamp(zombie.hp / max(1.0, zombie.max_hp), 0, 1)
+
+    if not getattr(zombie, "dead", False) and dmg:
         bar = pygame.Rect(int(x - 26), int(head_y - (74 if zombie.ztype == "cone" else 55)), 52, 6)
         pygame.draw.rect(surface, (48, 35, 33), bar, border_radius=3)
         fill = bar.inflate(-2, -2)
-        fill.width = int(fill.width * ratio)
-        color = (97, 198, 92) if ratio > 0.55 else (241, 186, 58) if ratio > 0.25 else (226, 73, 59)
-        pygame.draw.rect(surface, color, fill, border_radius=2)
+        fill.width = int(fill.width * bar_ratio)
+        color = (97, 198, 92) if bar_ratio > 0.55 else (241, 186, 58) if bar_ratio > 0.25 else (226, 73, 59)
+        if fill.width > 0:
+            pygame.draw.rect(surface, color, fill, border_radius=2)
 
 
 def draw_mower(surface: pygame.Surface, mower: "Mower", is_pool: bool = False, cell_h: int = CELL_H) -> None:
@@ -1473,6 +1484,8 @@ class Projectile:
         elif self.is_lobbed:
             self.lob_progress += dt / max(0.001, self.lob_duration)
             p = min(1.0, self.lob_progress)
+            if self.target_zombie and not getattr(self.target_zombie, "dead", True):
+                self.target_x = getattr(self.target_zombie, "x", self.target_x)
             self.x = self.start_x + (self.target_x - self.start_x) * p
             linear_y = self.start_y + (self.target_y - self.start_y) * p
             arc = 4.0 * self.apex_h * p * (1.0 - p)
@@ -1511,7 +1524,13 @@ class Mower:
 
 class Game:
     def __init__(self, screen: pygame.Surface, headless: bool = False) -> None:
-        self.screen = screen
+        self.real_screen = screen
+        self.canvas = pygame.Surface((WIDTH, HEIGHT))
+        self.screen = self.canvas
+        self.is_fullscreen = False
+        self.scale = 1.0
+        self.offset_x = 0
+        self.offset_y = 0
         pvz_graphics.init_graphics()
         self.fonts = FontBook()
         self.audio = AudioBank()
@@ -1542,12 +1561,16 @@ class Game:
         self.seed_btn_clear = pygame.Rect(310, 642, 130, 48)
         self.seed_btn_start = pygame.Rect(460, 638, 280, 56)
         self.seed_btn_recommend = pygame.Rect(760, 642, 150, 48)
-        self.topright_panel_rect = pygame.Rect(915, 10, 275, 80)
-        self.speed_rect = pygame.Rect(925, 46, 48, 36)
-        self.pause_rect = pygame.Rect(978, 46, 48, 36)
-        self.shovel_rect = pygame.Rect(1031, 46, 48, 36)
-        self.audio_rect = pygame.Rect(1084, 46, 48, 36)
-        self.skip_rect = pygame.Rect(1137, 46, 48, 36)
+        self.topright_panel_rect = pygame.Rect(825, 10, 365, 80)
+        self.speed_rect = pygame.Rect(832, 46, 48, 36)
+        self.pause_rect = pygame.Rect(883, 46, 48, 36)
+        self.shovel_rect = pygame.Rect(934, 46, 48, 36)
+        self.fullscreen_rect = pygame.Rect(985, 46, 48, 36)
+        self.autosun_rect = pygame.Rect(1036, 46, 48, 36)
+        self.audio_rect = pygame.Rect(1087, 46, 48, 36)
+        self.skip_rect = pygame.Rect(1138, 46, 48, 36)
+        self.auto_sun_unlocked = False
+        self.auto_sun_enabled = True
         self.warp_buttons: list[tuple[pygame.Rect, int]] = []
         self.warp_next_btn = pygame.Rect(0, 0, 0, 0)
         self.warp_close_btn = pygame.Rect(0, 0, 0, 0)
@@ -1606,6 +1629,7 @@ class Game:
         self.artifacts = set(self.save_data.get("artifacts", [])).union(getattr(self, "artifacts", set()))
         self.slot_capacity = 10 if "master_belt" in self.artifacts else 9
         self._reset_runtime()
+        self.auto_sun_unlocked = bool("auto_sun_magnet" in self.artifacts or self.save_data.get("highest_level", 0) >= 9 or self.level_index >= 9)
         bonus_sun = 100 if "sun_vault" in self.artifacts else 0
         self.sun = level["sun"] + bonus_sun
         self.waves = self._build_waves()
@@ -1808,6 +1832,62 @@ class Game:
 
         return [p for p in UNLOCK_ORDER if p in unlocked]
 
+    def get_logical_mouse_pos(self, pos: tuple[int, int] | None = None) -> tuple[int, int]:
+        if pos is None:
+            pos = pygame.mouse.get_pos()
+        rx, ry = pos
+        if not self.is_fullscreen or self.scale <= 0:
+            return int(clamp(rx, 0, WIDTH)), int(clamp(ry, 0, HEIGHT))
+        lx = (rx - self.offset_x) / self.scale
+        ly = (ry - self.offset_y) / self.scale
+        return int(clamp(lx, 0, WIDTH)), int(clamp(ly, 0, HEIGHT))
+
+    def toggle_fullscreen(self) -> None:
+        if self.headless:
+            return
+        self.is_fullscreen = not self.is_fullscreen
+        if self.is_fullscreen:
+            info = pygame.display.Info()
+            sw, sh = max(WIDTH, info.current_w), max(HEIGHT, info.current_h)
+            try:
+                self.real_screen = pygame.display.set_mode((sw, sh), pygame.FULLSCREEN)
+            except Exception:
+                self.real_screen = pygame.display.set_mode((WIDTH, HEIGHT))
+                self.is_fullscreen = False
+                return
+            self.scale = min(sw / WIDTH, sh / HEIGHT)
+            draw_w = int(WIDTH * self.scale)
+            draw_h = int(HEIGHT * self.scale)
+            self.offset_x = (sw - draw_w) // 2
+            self.offset_y = (sh - draw_h) // 2
+        else:
+            self.real_screen = pygame.display.set_mode((WIDTH, HEIGHT))
+            self.scale = 1.0
+            self.offset_x = 0
+            self.offset_y = 0
+
+    def render_present(self) -> None:
+        if self.headless:
+            return
+        if self.is_fullscreen:
+            self.real_screen.fill((0, 0, 0))
+            draw_w = int(WIDTH * self.scale)
+            draw_h = int(HEIGHT * self.scale)
+            scaled = pygame.transform.smoothscale(self.canvas, (draw_w, draw_h))
+            self.real_screen.blit(scaled, (self.offset_x, self.offset_y))
+        else:
+            self.real_screen.blit(self.canvas, (0, 0))
+        pygame.display.flip()
+
+    def get_cell_rect(self, col: int, row: int) -> pygame.Rect:
+        if getattr(self, "is_pool", False):
+            POOL_ROW_RANGES = [(95, 210), (210, 335), (335, 452), (452, 560), (560, 660), (660, 755)]
+            r = max(0, min(5, row))
+            top_y, bot_y = POOL_ROW_RANGES[r]
+            gx = 140 + col * 80
+            return pygame.Rect(gx, top_y, 80, bot_y - top_y)
+        return pygame.Rect(GRID_X + col * CELL_W, GRID_Y + row * self.cell_h, CELL_W, self.cell_h)
+
     def begin_loop(self) -> None:
         while self.running:
             raw_dt = min(0.05, self.clock.tick(FPS) / 1000.0)
@@ -1816,10 +1896,10 @@ class Game:
             self.handle_events()
             self.update(raw_dt)
             self.draw()
-            pygame.display.flip()
+            self.render_present()
 
     def handle_events(self) -> None:
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = self.get_logical_mouse_pos()
         # 快捷阳光吸附：鼠标滑过即可自动收集阳光
         if self.mode == "playing" and not self.overlay:
             for token in self.suns:
@@ -1830,9 +1910,13 @@ class Game:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
-                self._handle_key(event.key)
+                if event.key in (pygame.K_F11, pygame.K_f) or (event.key == pygame.K_RETURN and (event.mod & pygame.KMOD_ALT)):
+                    self.toggle_fullscreen()
+                else:
+                    self._handle_key(event.key)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self._handle_click(event.pos)
+                log_pos = self.get_logical_mouse_pos(event.pos)
+                self._handle_click(log_pos)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 self.selected_plant = None
                 self.shovel_selected = False
@@ -2031,6 +2115,22 @@ class Game:
             if self.shovel_rect.collidepoint(pos):
                 self.shovel_selected = not self.shovel_selected
                 self.selected_plant = None
+                return
+            if hasattr(self, "fullscreen_rect") and self.fullscreen_rect.collidepoint(pos):
+                self.toggle_fullscreen()
+                self.audio.play("click")
+                return
+            if hasattr(self, "autosun_rect") and self.autosun_rect.collidepoint(pos):
+                if getattr(self, "auto_sun_unlocked", False):
+                    self.auto_sun_enabled = not self.auto_sun_enabled
+                    state_str = "【已开启】" if self.auto_sun_enabled else "【已关闭】"
+                    self.float_text(600, 100, f"自动吸附阳光：{state_str}", C_GOLD)
+                else:
+                    for token in self.suns:
+                        if not token.collected:
+                            self.collect_sun(token)
+                    self.float_text(600, 100, "一键阳光吸附！[第10关后永久全自动]", C_GOLD)
+                self.audio.play("collect")
                 return
             if self.audio_rect.collidepoint(pos):
                 self.audio_on = not self.audio_on
@@ -2235,6 +2335,12 @@ class Game:
         self._check_progress()
 
     def _update_visuals(self, dt: float) -> None:
+        # 自动收集阳光检测 (第 10 关通关后解锁，用户可随时开/关)
+        if getattr(self, "auto_sun_unlocked", False) and getattr(self, "auto_sun_enabled", True):
+            for token in self.suns:
+                if not token.collected and token.age >= 0.25:
+                    self.collect_sun(token)
+
         for token in self.suns:
             if not token.collected:
                 token.update(dt)
@@ -2425,23 +2531,28 @@ class Game:
                         )
                         self.audio.play("plant", cooldown=0.1)
             elif plant.ptype == "kernelpult":
-                if plant.action_timer >= 2.85:
+                if plant.action_timer >= 2.35:
                     target = next((z for z in sorted(self.zombies, key=lambda z: z.x) if z.row == plant.row and not z.dead and z.x > plant.x - 20 and z.x < GRID_RIGHT + 180), None)
                     if target:
                         plant.action_timer = 0.0
-                        is_butter = random.random() < 0.25
+                        plant.shots_since_butter = getattr(plant, "shots_since_butter", 0) + 1
+                        # 30% 基础概率，且连续 2 发玉米粒后第 3 发必出黄油保底！
+                        is_butter = (plant.shots_since_butter >= 3) or (random.random() < 0.30)
+                        if is_butter:
+                            plant.shots_since_butter = 0
                         b_type = "butter" if is_butter else "kernel"
-                        dmg = 40.0 if is_butter else 20.0
+                        dmg = 55.0 if is_butter else 28.0
                         tx = target.x
                         ty = target.y
                         dist = max(80.0, tx - plant.x)
-                        duration = clamp(dist / 400.0, 0.55, 1.1)
+                        duration = clamp(dist / 420.0, 0.50, 1.0)
                         self.projectiles.append(
                             Projectile(
                                 x=plant.x + 20, y=plant.y - 30, row=plant.row, damage=dmg,
                                 bullet_type=b_type, is_lobbed=True,
                                 start_x=plant.x + 20, start_y=plant.y - 30,
                                 target_x=tx, target_y=ty, lob_duration=duration, apex_h=110.0,
+                                target_zombie=target,
                             )
                         )
                         self.audio.play("plant", cooldown=0.1)
@@ -2927,7 +3038,7 @@ class Game:
 
                     hit_targets = [
                         z for z in self.zombies
-                        if z.row == projectile.row and not z.dead and not getattr(z, 'hypnotized', False) and abs(z.x - impact_x) < 55
+                        if z.row == projectile.row and not z.dead and not getattr(z, 'hypnotized', False) and abs(z.x - impact_x) < 85
                     ]
                     main_target = min(hit_targets, key=lambda z: abs(z.x - impact_x)) if hit_targets else None
 
@@ -2949,7 +3060,7 @@ class Game:
                         self.audio.play("butter", cooldown=0.1)
                         if main_target:
                             self._damage_zombie(main_target, projectile.damage, freeze=False)
-                            main_target.butter_timer = 4.0
+                            main_target.butter_timer = 4.5
                             self.float_text(main_target.x, main_target.y - 35, "黄油定身！", (255, 230, 90))
                     elif projectile.bullet_type in ("melon", "winter_melon"):
                         is_ice = projectile.bullet_type == "winter_melon"
@@ -3729,19 +3840,44 @@ class Game:
             self.screen.blit(image, rect)
 
         if self.selected_plant:
-            mouse = pygame.mouse.get_pos()
+            mouse = self.get_logical_mouse_pos()
             col, row = self._cell_at(mouse)
             if col is not None and row is not None:
-                rect = pygame.Rect(GRID_X + col * CELL_W, GRID_Y + row * CELL_H, CELL_W, CELL_H)
-                surface = pygame.Surface((CELL_W, CELL_H), pygame.SRCALPHA)
-                pygame.draw.rect(surface, (255, 244, 151, 40), surface.get_rect(), border_radius=7)
-                pygame.draw.rect(surface, (255, 239, 137, 145), surface.get_rect(), 3, border_radius=7)
+                rect = self.get_cell_rect(col, row)
+                surface = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                pygame.draw.rect(surface, (255, 244, 151, 55), surface.get_rect(), border_radius=6)
+                pygame.draw.rect(surface, (255, 239, 137, 180), surface.get_rect(), 3, border_radius=6)
                 self.screen.blit(surface, rect)
-                if self._plant_at(col, row) is None:
-                    ghost = pygame.Surface((CELL_W, CELL_H), pygame.SRCALPHA)
-                    draw_plant(ghost, self.selected_plant, (CELL_W / 2, CELL_H / 2), 0.75, self.time_value)
-                    ghost.set_alpha(155)
-                    self.screen.blit(ghost, rect)
+
+                # 判定能否在此种植：
+                is_water = getattr(self, "is_pool", False) and (row in getattr(self, "pool_rows", []))
+                carrier = self._carrier_at(col, row)
+                top_plant = self._top_plant_at(col, row)
+                can_plant = False
+                pname = self.selected_plant
+                if is_water:
+                    if pname == "lilypad" and carrier is None:
+                        can_plant = True
+                    elif pname == "cattail" and carrier is not None and top_plant == carrier:
+                        can_plant = True
+                    elif pname not in ("spikeweed", "potatomine", "lilypad") and carrier is not None and top_plant == carrier:
+                        can_plant = True
+                else:
+                    if pname != "lilypad" and top_plant is None:
+                        can_plant = True
+                    elif pname == "gatlingpea" and top_plant and top_plant.ptype == "repeater":
+                        can_plant = True
+                    elif pname == "twinsunflower" and top_plant and top_plant.ptype == "sunflower":
+                        can_plant = True
+
+                cx, cy = cell_center(col, row, cell_h=self.cell_h, is_pool=self.is_pool)
+                ghost = pygame.Surface((120, 120), pygame.SRCALPHA)
+                draw_plant(ghost, pname, (60, 60), 0.75, self.time_value)
+                ghost.set_alpha(175 if can_plant else 85)
+                self.screen.blit(ghost, (cx - 60, cy - 60))
+                if not can_plant:
+                    pygame.draw.line(self.screen, (240, 70, 70, 210), (rect.x + 8, rect.y + 8), (rect.right - 8, rect.bottom - 8), 3)
+                    pygame.draw.line(self.screen, (240, 70, 70, 210), (rect.right - 8, rect.y + 8), (rect.x + 8, rect.bottom - 8), 3)
 
     def _draw_hud(self) -> None:
         hud = pygame.Rect(0, 0, WIDTH, HUD_H)
@@ -3822,10 +3958,15 @@ class Game:
             self.fonts.get(14, True), (61, 70, 45), (top_p.centerx, 16), "midtop",
         )
 
-        # Controls (单行清爽按钮，居中对齐，绝无任何文字重叠乱码)
+        # Controls (7 个独立紧凑精致按钮，单行居中对齐，绝无任何文字重叠与乱码)
         self._small_control(self.speed_rect, f"{self.game_speed:0.0f}x速", active=self.game_speed > 1.0)
         self._small_control(self.pause_rect, "暂停" if self.overlay != "paused" else "继续")
         self._small_control(self.shovel_rect, "铲子", active=self.shovel_selected)
+        self._small_control(self.fullscreen_rect, "全屏" if not self.is_fullscreen else "窗口")
+        if getattr(self, "auto_sun_unlocked", False):
+            self._small_control(self.autosun_rect, "自吸" if self.auto_sun_enabled else "手动", active=self.auto_sun_enabled)
+        else:
+            self._small_control(self.autosun_rect, "吸附")
         self._small_control(self.audio_rect, "音效" if self.audio_on else "静音", active=self.audio_on)
         self._small_control(self.skip_rect, "跳关", highlight=True)
 
