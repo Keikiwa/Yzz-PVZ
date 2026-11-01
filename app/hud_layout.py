@@ -1,0 +1,48 @@
+# -*- coding: utf-8 -*-
+"""HUD Layout calculations.
+Pure functions computing exact screen bounding boxes and hit areas for HUD elements.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+import pygame
+
+
+@dataclass(frozen=True)
+class HudRects:
+    sun_counter: pygame.Rect
+    card_slots: list[pygame.Rect]
+    shovel_button: pygame.Rect
+    auto_sun_toggle: pygame.Rect
+    speed_button: pygame.Rect
+    pause_button: pygame.Rect
+    progress_bar: pygame.Rect
+
+
+def compute_hud_layout(max_slots: int = 8) -> HudRects:
+    sun_counter = pygame.Rect(10, 8, 118, 76)
+
+    card_slots = []
+    for i in range(max_slots):
+        x = 136 + i * 70
+        y = 6
+        card_slots.append(pygame.Rect(x, y, 66, 80))
+
+    shovel_x = 136 + max_slots * 70 + 12
+    shovel_btn = pygame.Rect(shovel_x, 10, 62, 70)
+
+    speed_btn = pygame.Rect(920, 10, 48, 36)
+    pause_btn = pygame.Rect(976, 10, 60, 36)
+    auto_sun_btn = pygame.Rect(1046, 10, 140, 36)
+
+    progress_bar = pygame.Rect(760, 722, 220, 20)
+
+    return HudRects(
+        sun_counter=sun_counter,
+        card_slots=card_slots,
+        shovel_button=shovel_btn,
+        auto_sun_toggle=auto_sun_btn,
+        speed_button=speed_btn,
+        pause_button=pause_btn,
+        progress_bar=progress_bar,
+    )

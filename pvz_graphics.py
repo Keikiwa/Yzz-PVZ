@@ -125,7 +125,12 @@ def _get_scaled(surf: pygame.Surface, target_w: int, target_h: int) -> pygame.Su
     key = (id(surf), target_w, target_h)
     cached = _SCALED_CACHE.get(key)
     if cached is None:
-        cached = pygame.transform.smoothscale(surf, (target_w, target_h))
+        try:
+            if surf.get_bitsize() not in (24, 32):
+                surf = surf.convert_alpha()
+            cached = pygame.transform.smoothscale(surf, (target_w, target_h))
+        except Exception:
+            cached = pygame.transform.scale(surf, (target_w, target_h))
         _SCALED_CACHE[key] = cached
     return cached
 
